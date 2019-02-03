@@ -47,7 +47,7 @@ class RetinaNetPostProcessor(RPNPostProcessor):
         self.num_classes = num_classes
 
         if box_coder is None:
-            box_coder = BoxCoder(weights=(10., 10., 5., 5.))
+            box_coder = BoxCoder(weights=(1., 1., 1., 1.))
         self.box_coder = box_coder
  
     def add_gt_proposals(self, proposals, targets):

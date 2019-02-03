@@ -2,6 +2,7 @@
 This file contains specific functions for computing losses on the RetinaNet
 file
 """
+import numpy as np
 
 import torch
 from torch.nn import functional as F
@@ -52,30 +53,56 @@ class RetinaNetLossComputation(RPNLossComputation):
         """
         anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
         labels, regression_targets = self.prepare_targets(anchors, targets)
+        sizes = [box_per_layer.shape[2] * box_per_layer.shape[3] * 9 \
+                 for box_per_layer in box_cls]
 
         NUMBER_PREDICTION_LAYERS = len(box_cls)
         box_cls, box_regression = \
                 concat_box_prediction_layers(box_cls, box_regression)
 
+
+        N = len(labels)
         labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        pos_inds = torch.nonzero(labels > 0).squeeze(1)
+        num_fg = (labels > 0).sum().item()
+        num_fg += N
 
-        retinanet_regression_loss = smooth_l1_loss(
-            box_regression[pos_inds],
-            regression_targets[pos_inds],
-            beta=self.bbox_reg_beta,
-            size_average=False,
-        ) / (pos_inds.numel() * 4)
 
-        labels = labels.int()
+        labels = labels.view(N, -1)
+        regression_targets = torch.cat(regression_targets, dim=0) \
+                .view(N, -1, 4)
+        box_cls = box_cls.view(N, -1, 80)
+        box_regression = box_regression.view(N, -1, 4)
 
-        retinanet_cls_loss = self.box_cls_loss_func(
-            box_cls,
-            labels
-        ) / (pos_inds.numel() + NUMBER_PREDICTION_LAYERS)
+        sizes = [0] + np.cumsum(sizes).tolist()
+        loss = {}
 
-        return retinanet_cls_loss, retinanet_regression_loss
+        for i in range(5):
+            labels_per_layer = labels[:, sizes[i]:sizes[i+1]].contiguous().view(-1)
+            regression_targets_per_layer = \
+                    regression_targets[:, sizes[i]:sizes[i+1], :].contiguous().view(-1, 4)
+            box_cls_per_layer = box_cls[:, sizes[i]:sizes[i+1],
+                                        :].contiguous().view(-1, 80)
+            box_regression_per_layer = \
+                    box_regression[:, sizes[i]:sizes[i+1], :].contiguous().view(-1, 4)
+
+            pos_inds = torch.nonzero(labels_per_layer > 0).squeeze(1)
+
+            retinanet_regression_loss = smooth_l1_loss(
+                box_regression_per_layer[pos_inds],
+                regression_targets_per_layer[pos_inds],
+                beta=self.bbox_reg_beta,
+                size_average=False,
+            ) / (num_fg)
+
+            labels_per_layer = labels_per_layer.int()
+
+            retinanet_cls_loss = self.box_cls_loss_func(
+                box_cls_per_layer,
+                labels_per_layer
+            ) / (num_fg)
+            loss['retinanet_regression_L{}'.format(i)] = retinanet_regression_loss
+            loss['retinanet_cls_L{}'.format(i)] = retinanet_cls_loss
+        return loss
 
 
 def generate_retinanet_labels(matched_targets):

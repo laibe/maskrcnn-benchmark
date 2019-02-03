@@ -99,7 +99,8 @@ class RetinaNetModule(torch.nn.Module):
 
         anchor_generator = make_anchor_generator_retinanet(cfg)
         head = RetinaNetHead(cfg)
-        box_coder = BoxCoder(weights=(10., 10., 5., 5.))
+        #box_coder = BoxCoder(weights=(10., 10., 5., 5.))
+        box_coder = BoxCoder(weights=(1., 1., 1., 1.))
 
         box_selector_test = make_retinanet_postprocessor(cfg, box_coder, is_train=False)
 
@@ -135,13 +136,13 @@ class RetinaNetModule(torch.nn.Module):
 
     def _forward_train(self, anchors, box_cls, box_regression, targets):
 
-        loss_box_cls, loss_box_reg = self.loss_evaluator(
+        losses = self.loss_evaluator(
             anchors, box_cls, box_regression, targets
         )
-        losses = {
-            "loss_retina_cls": loss_box_cls,
-            "loss_retina_reg": loss_box_reg,
-        }
+        #losses = {
+        #    "loss_retina_cls": loss_box_cls,
+        #    "loss_retina_reg": loss_box_reg,
+        #}
         return anchors, losses
 
     def _forward_test(self, anchors, box_cls, box_regression):
